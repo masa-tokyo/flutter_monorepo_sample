@@ -13,8 +13,7 @@ Future<void> main(List<String> args) async => grind(args);
 /// デフォルト言語の arb ファイルを元にそれ以外の arb ファイルのフィールドを生成し、`l10n.dart` へ反映する。
 @DefaultTask()
 void translate() {
-  // プロジェクトルートの API キーを取得する
-  // MEMO(masaki): 現状は `masakisato.japan@gmail.com` が管理する GCP 上で作成されたキーになっている
+  // プロジェクトルートの API キーを取得する。
   final apiKeyFile = File(p.join('../../', '.arb_translate_api_key'));
   final apiKey = apiKeyFile.existsSync()
       ? apiKeyFile.readAsStringSync().trim()
@@ -26,10 +25,8 @@ Please create a `.arb_translate_api_key` file in the project root and store the 
     exit(1);
   }
 
-  // トークン節約のために英語で記述し、翻訳精度向上のために適宜修正する追加文脈
+  // トークン節約のために英語で記述し、翻訳精度向上のために適宜修正する追加文脈。
   const context = '''
-This application is a mobile app that stores users' document data.
-Since it is mainly used by the government, strict wording is preferred in the translation.
 ''';
 
   // 以下の PR で提案されているモデルを利用する。
@@ -52,6 +49,6 @@ Since it is mainly used by the government, strict wording is preferred in the tr
     ],
   );
 
-  // arb ファイルのフィールドを `l10n.dart` へ反映するために `flutter gen-10n` を実行
+  // arb ファイルのフィールドを `l10n.dart` へ反映するために `flutter gen-10n` を実行。
   run('fvm', arguments: ['flutter', 'gen-l10n']);
 }
