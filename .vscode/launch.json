@@ -1,0 +1,24 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "app debug",
+      "request": "launch",
+      "type": "dart",
+      "program": "packages/app/lib/main.dart",
+      "flutterMode": "debug",
+      "args": [
+      ]
+    },
+    {
+      "name": "sample dev debug",
+      "request": "launch",
+      "type": "dart",
+      "program": "packages/sample/lib/main.dart",
+      "flutterMode": "debug",
+      "args": [
+        "--dart-define-from-file=scripts/flavors/dev.json"
+      ]
+    }
+  ]
+}

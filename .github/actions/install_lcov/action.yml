@@ -1,0 +1,19 @@
+name: Install LCOV
+description: Install LCOV with required Perl dependencies
+
+runs:
+  using: composite
+  steps:
+    - name: Install LCOV
+      shell: bash
+      run: |
+        # LCOV インストールに必要な Perl をまずインストールする。
+        sudo apt-get update
+        sudo apt-get install -y perl libcapture-tiny-perl libdatetime-perl
+        # 現行の Ubuntu マシン上でインストール可能な 2.0 系ではカバレッジの詳細が正しく表示されないため、最新版の LCOV をソースからコンパイルしてインストールする。
+        # 参考: https://github.com/linux-test-project/lcov/issues/267
+        wget https://github.com/linux-test-project/lcov/releases/download/v2.3.1/lcov-2.3.1.tar.gz
+        tar -xzf lcov-2.3.1.tar.gz
+        cd lcov-2.3.1
+        sudo make install PREFIX=/usr/local
+        echo "/usr/local/bin" >> $GITHUB_PATH 

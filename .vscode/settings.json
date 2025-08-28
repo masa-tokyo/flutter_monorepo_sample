@@ -1,0 +1,21 @@
+{
+  "dart.flutterSdkPath": ".fvm/versions/stable",
+  "[dart]": {
+    "editor.formatOnSave": true,
+    "editor.formatOnType": true
+  },
+  "specstory.autoSave.enabled": true,
+  "specstory.helpUsImprove": false,
+  // Flutter Coverage の設定。
+  "flutter-coverage.sufficientCoverageThreshold": 100,
+  "flutter-coverage.coverageFileNames": [
+    "lcov_filtered.info"
+  ],
+  "flutter-coverage.coverageFilePaths": [
+    "packages/domain/coverage",
+    "packages/repository/coverage",
+    "packages/system/coverage",
+    "packages/injection/coverage",
+    "packages/util/coverage"
+  ]
+}

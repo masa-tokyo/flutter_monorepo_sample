@@ -1,0 +1,202 @@
+---
+description: "Util パッケージのテストガイドライン - 純粋な Dart パッケージとして汎用的なユーティリティ機能のテストを実装するためのルール。"
+globs:
+  - "packages/util/test/**"
+alwaysApply: false
+---
+
+# util-test.mdc
+
+## ファイル構成
+
+Util パッケージのテストファイルは、`lib/src` のディレクトリ構造を `test/src` に反映して配置します。
+
+- ソースファイルが `lib/src/{機能名}.dart` にある場合、テストファイルは `test/src/{機能名}_test.dart` に配置する
+- 複数のファイルで構成される機能の場合は、`test/src/{機能名}/` ディレクトリを作成し、その中に関連テストファイルを配置する
+
+## 基本的な設計方針
+
+Util パッケージのテストは以下の方針で実装します：
+
+1. **意味のあるテストケース**: 独自の価値を提供するテストのみを実装し、重複や冗長なテストを避ける
+2. **境界値テスト**: 最小・最大値、空の状態などの境界条件を必ずテストする
+3. **プロパティベーステスト**: 個別のケースだけでなく、満たすべき普遍的な性質をテストする
+4. **コア機能への集中**: 実装の詳細ではなく、公開 API の動作と契約をテストする
+
+## コードカバレッジについて
+
+このパッケージでは、コードカバレッジが常に 100% である必要があります。
+
+ただし、以下の場合においては、テスト対象がカバレッジに含まれないことがあるため注意してください：
+
+1. 単一の return 文のみを含む if 文内
+2. 三項演算子
+3. assert 文が false の場合
+
+## 実装時の留意点
+
+### ファイル内構成
+
+Util テストファイル内は以下の構成で組織化します：
+
+**クラステスト**: `{クラス名} のテスト。`
+- 各メソッド単位で `{メソッド名} メソッドのテスト。` のグループを作成
+- 各メソッド内で正常ケース、境界値、異常ケースのテストを実装
+
+**拡張機能テスト**: `{拡張機能名} 拡張のテスト。`
+- 各メソッド単位で `{メソッド名} メソッドのテスト。` のグループを作成
+- 各メソッド内で正常ケース、境界値、異常ケースのテストを実装
+
+### テストケースの選択と重複の回避
+
+- 各テストケースが独自の価値を提供することを確認する
+- すでに他のテストでカバーされている動作の重複テストを避ける
+- 実装の詳細ではなく、公開 API の契約と動作をテストする
+- 単純な不等式や基本的な文字列比較のみをテストするケースは除外する
+- 同じ動作を複数のテストで検証することを避ける
+
+### テストケースの命名
+
+- テストグループとテストケースの名前は日本語で、動作を明確に表現する
+- テストケース名は文章として自然で、何をテストしているかが一目で分かるようにする
+- コメントは実装の意図や重要性を説明し、将来のメンテナンスに役立つ情報を記載する
+
+### 境界値テストの実装
+
+- 最小ケース（単一要素の enum など）から最大ケースまでの境界条件をテストする
+- 空の状態、null 値、無効な入力値に対する適切な処理を確認する
+- 境界値テストは機能の堅牢性を確認するため必須とする
+
+### プロパティベーステストの活用
+
+- すべての有効な値に対して満たすべき普遍的な性質を検証する
+- 個別のケーステストと組み合わせて、包括的な検証を行う
+- 機能の変更に自動的に適応するテストを実装する
+
+### 拡張機能のテスト戦略
+
+- **元の型との整合性**: 拡張機能が元の型の責任範囲内で動作することを確認
+- **null 安全性**: null 値の処理が適切に行われることを確認
+- **型安全性**: ジェネリクスや型パラメータが正しく機能することを確認
+
+## 実装例
+
+### クラステストの基本構造
+
+```dart
+import 'package:test/test.dart';
+import 'package:util/src/target_class.dart';
+
+void main() {
+  group('TargetClass のテスト。', () {
+    late TargetClass targetClass;
+    late TestResource testResource;
+
+    setUp(() {
+      testResource = TestResource();
+      targetClass = TargetClass(testResource);
+    });
+
+    tearDown(() async {
+      await testResource.dispose();
+    });
+
+    group('methodName メソッドのテスト。', () {
+      test('正常なパラメータで期待する結果を返す。', () {
+        final result = targetClass.methodName('valid input');
+        
+        expect(result, equals('expected output'));
+      });
+
+      test('パラメータにエラーオブジェクトも指定した場合、エラー情報が含まれる。', () {
+        final testError = Exception('Test error');
+        
+        final result = targetClass.methodName('input', testError);
+        
+        expect(result.error, equals(testError));
+      });
+
+      test('無効なパラメータで null を返す。', () {
+        final result = targetClass.methodName('invalid input');
+        
+        expect(result, isNull);
+      });
+    });
+
+    group('anotherMethod メソッドのテスト。', () {
+      test('リソースが正しく設定される。', () {
+        targetClass.anotherMethod();
+        
+        expect(testResource.isConfigured, isTrue);
+      });
+    });
+  });
+}
+```
+
+### 拡張機能テストの基本構造
+
+```dart
+import 'package:test/test.dart';
+import 'package:util/src/target_extension.dart';
+
+void main() {
+  group('TargetExtension 拡張のテスト。', () {
+    group('methodName メソッドのテスト。', () {
+      test('有効な入力値で正しい結果を返す。', () {
+        final testData = ['first', 'second', 'third'];
+        
+        final result = testData.methodName('second');
+        
+        expect(result, equals('expected result'));
+      });
+
+      test('無効な入力値で null を返す。', () {
+        final testData = ['first', 'second', 'third'];
+        
+        final result = testData.methodName('invalid');
+        
+        expect(result, isNull);
+      });
+
+      test('null 入力で null を返す。', () {
+        final testData = ['first', 'second', 'third'];
+        
+        final result = testData.methodName(null);
+        
+        expect(result, isNull);
+      });
+
+      test('空の文字列で null を返す。', () {
+        final testData = ['first', 'second', 'third'];
+        
+        final result = testData.methodName('');
+        
+        expect(result, isNull);
+      });
+
+      test('単一要素のコレクションで正常に動作する。', () {
+        final testData = ['single'];
+        
+        final result = testData.methodName('single');
+        
+        expect(result, equals('expected single result'));
+      });
+
+      test('包括的なテスト - すべての要素で正常に動作する。', () {
+        final testData = ['first', 'second', 'third'];
+        
+        for (final item in testData) {
+          final result = testData.methodName(item);
+          expect(result, isNotNull);
+        }
+      });
+    });
+  });
+}
+```
+
+---
+
+このルールファイルが参照されていることを確認するために、返答の最初に「✅ util-test.mdc」と記載してください。
+ファイルの編集を終えた後、変更内容が上記のルールを遵守していることを確認し、遵守されていない箇所があれば修正を行ってください。その後、返答の最後に「💡 util-test.mdc」と記載してください。

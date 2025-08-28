@@ -1,0 +1,31 @@
+name: Check
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    types: [opened, synchronize]
+
+concurrency:
+  # 同じワークフローの同時実行は不要のため途中でキャンセルする。
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/bootstrap_project
+      - run: melos run analyze
+      - run: melos run custom_lint
+      - name: Formatting check
+        # 実行権限を付与した上でフォーマットの差分を検出する。
+        run: |
+          melos run format
+          ls -l .github/scripts/validate-formatting.sh
+          chmod +x .github/scripts/validate-formatting.sh
+          ls -l .github/scripts/validate-formatting.sh
+          .github/scripts/validate-formatting.sh

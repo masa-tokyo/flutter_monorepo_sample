@@ -1,0 +1,151 @@
+---
+description: 
+globs: packages/injection/lib/**
+alwaysApply: false
+---
+# injection-implementation.mdc
+
+## 依存性注入パッケージについて
+
+injection パッケージは、アプリケーション全体で使用される依存性注入（DI）を管理するパッケージです。
+Riverpod と riverpod_annotation を使用して、system パッケージのクライアントを含む各種依存関係を提供します。
+
+現在、以下の 2 つの主要なプロバイダーが実装されています：
+
+1. **HttpClientProvider** - HTTP クライアントの依存性注入
+2. **SharedPreferencesClientProvider** - ローカル設定クライアントの依存性注入
+
+## ファイル構成
+
+### 新しいファイルを作成する際のガイドライン
+
+#### 1. ファイルの配置場所
+
+**機能別ディレクトリに配置する場合:**
+- `lib/src/{機能名}/` 配下に配置する（例: `lib/src/http_client/`, `lib/src/shared_preferences/`）
+- 関連するプロバイダークラス、オーバーライド設定を同じディレクトリにまとめる
+- 新しい機能領域の場合は、新しいディレクトリを作成する
+
+**共通ファイルとして配置する場合:**
+- `lib/src/` 直下に配置する（例: `injection_sample.dart`）
+- 複数の機能で共通して利用される基底クラスやユーティリティクラスに適用する
+
+#### 2. ファイルのエクスポート方法
+
+**機能別ディレクトリ内のファイルの場合:**
+1. 該当ディレクトリ内の `_export.dart` ファイルに export 文を追加する
+```dart
+// lib/src/http_client/_export.dart
+export 'http_client_injection.dart';
+export 'new_injection.dart';  // ← 新しいファイルを追加
+```
+`_export.dart` ファイルが存在しない場合は新規作成する。
+
+2. `lib/injection.dart` に該当ディレクトリの `_export.dart` を追加する
+```dart
+// lib/injection.dart
+export 'src/http_client/_export.dart';
+export 'src/shared_preferences/_export.dart';
+export 'src/new_feature/_export.dart';  // ← 新しい機能ディレクトリを追加
+```
+
+**共通ファイルの場合:**
+- `lib/injection.dart` に直接 export 文を追加する
+```dart
+// lib/injection.dart
+export 'src/injection_sample.dart';
+export 'src/new_common_injection.dart';  // ← 新しい共通ファイルを追加
+```
+
+#### 3. ファイル命名規則
+
+- **プロバイダークラス**: `{対象名}_injection.dart`（例: `http_client_injection.dart`, `shared_preferences_client_injection.dart`）
+
+#### 4. コード生成ファイル
+
+Riverpod の code generation を使用するため、以下のファイルが自動生成されます：
+- `{ファイル名}.g.dart` - riverpod_generator により生成される
+
+これらのファイルは Git に含める必要がありますが、手動編集は行わないでください。
+
+## 基本的な設計方針
+
+Injection レイヤーは以下の方針で実装します：
+
+1. **Riverpod ベースの DI**: Riverpod の Provider を使用して依存性注入を管理する
+2. **コード生成の活用**: riverpod_annotation を使用してボイラープレートコードを自動生成する
+3. **環境切り替え対応**: アプリ起動時やテスト時に適切な実装をオーバーライドして注入する
+4. **型安全性の確保**: Dart の型システムを活用して、コンパイル時に依存関係の整合性を保証する
+5. **テスタビリティ**: テスト時には mock 実装を簡単に注入できるような設計にする
+
+## ファクトリー関数の実装パターン
+
+ファクトリー関数の実装には、依存性の性質に応じて 2 つのパターンがあります：
+
+### パターン 1: プラットフォーム依存がない場合（推奨）
+
+**適用ケース:**
+- HTTP クライアント（DioHttpClient など）
+- 純粋な Dart クラス
+- プラットフォーム API を使用しない依存性
+
+**実装例:**
+```dart
+/// [HttpClient] を取得する。
+HttpClient getHttpClient() => HttpClient(DioHttpClient());
+```
+
+**特徴:**
+- シンプルで保守しやすい
+- テスト環境でも問題なく動作する
+- 実際の本番コードパスをテストできる
+
+### パターン 2: プラットフォーム依存がある場合
+
+**適用ケース:**
+- プラットフォーム API を使用するパッケージ（SharedPreferences など）
+- テスト環境では初期化に失敗するパッケージ
+
+**実装例:**
+```dart
+/// [SharedPreferencesClient] を取得する。
+///
+/// [SharedPreferencesWithCache] の初期化を行なった上で [SharedPreferencesClient] を生成する。
+///
+/// テスト時には [prefsWithCache] へモックの [SharedPreferencesWithCache] が渡される。
+Future<SharedPreferencesClient> getSharedPreferencesClient({
+  @visibleForTesting SharedPreferencesWithCache? prefsWithCache,
+}) async {
+  final prefs =
+      prefsWithCache ??
+      await SharedPreferencesWithCache.create(
+        cacheOptions: SharedPreferencesWithCacheOptions(
+          allowList: SharedPreferencesKey.values.map((e) => e.name).toSet(),
+        ),
+      );
+  return SharedPreferencesClient(prefs);
+}
+```
+
+**特徴:**
+- テスト環境では依存性の初期化が失敗するため、モック注入が必要
+- `@visibleForTesting` でテスト専用パラメータであることを明示
+- null 結合演算子（`??`）でテスト時と本番時の切り替えを実現
+
+## 実装時の判断基準
+
+新しいファクトリー関数を実装する際は、以下の判断基準を使用してください：
+
+1. **まずパターン 1 で実装する**: シンプルな形で始める
+2. **テストを実行する**: テスト環境で動作するかを確認
+3. **失敗する場合のみパターン 2 を適用**: プラットフォーム依存エラーが発生した場合のみモック注入パターンを使用
+
+**重要なポイント:**
+- 不要な複雑性を避けるため、モック注入パターンは必要な場合にのみ適用する
+- テスト環境で正常に動作する依存性には、モック注入パラメータを追加しない
+- YAGNI（You Ain't Gonna Need It）の原則に従い、必要になってから複雑性を追加する
+
+---
+
+このルールファイルが参照されていることを確認するために、返答の最初に「✅ injection-implementation.mdc」と記載してください。
+ファイルの編集を終えた後、変更内容が上記のルールを遵守していることを確認し、遵守されていない箇所があれば修正を行ってください。その後、返答の最後に「💡 injection-implementation.mdc」と記載してください。

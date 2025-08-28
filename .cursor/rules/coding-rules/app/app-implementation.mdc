@@ -1,0 +1,18 @@
+---
+description: 
+globs: packages/app/**/*
+alwaysApply: false
+---
+# app-implementation.mdc
+
+## assets について
+静的アセットについてはこのパッケージではなく base_ui パッケージにて管理しています。このパッケージでは assets ディレクトリを用意せず、base_ui パッケージにて flutter_gen により生成された [assets.gen.dart](mdc:packages/base_ui/lib/src/assets.gen.dart) を参照して以下のように利用します：
+
+```dart
+Assets.images.foo.image()
+```
+
+---
+
+このファイルのルールが参照されていることを確認するために、返答の最初に 「✅ app-implementation.mdc」と言ってください。
+ファイルの編集を終えた後、変更内容が上記のルールを遵守していることを確認し、遵守されていない箇所があれば修正を行ってください。その後、返答の最後に「💡 app-implementation.mdc」と記載してください。

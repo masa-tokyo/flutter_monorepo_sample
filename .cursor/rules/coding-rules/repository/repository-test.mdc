@@ -1,0 +1,241 @@
+---
+description: 
+globs: packages/repository/test/**
+alwaysApply: false
+---
+# repository-test.mdc
+
+## ファイル構成
+
+repository パッケージのテストファイルは、`lib/src` のディレクトリ構造を `test/src` に反映して配置します。
+
+- ソースファイルが `lib/src/{機能名}/xxx.dart` にある場合、テストファイルは `test/src/{機能名}/xxx_test.dart` に配置する
+- 共通ファイルのテストは `test/src/` 直下に配置する
+
+
+## 基本的な設計方針
+
+Repository テストは以下の方針で実装します：
+
+1. **プロバイダーテスト**: 依存性注入が正しく動作することを確認
+2. **ビジネスロジックテスト**: Repository のメソッドが期待通りに動作することを確認
+3. **エラーハンドリングテスト**: 代表的な失敗ケースのみを簡潔にテスト
+4. **レスポンスデータテスト**: API からのレスポンスが正しく DTO に変換されることを確認
+
+## コードカバレッジについて
+
+このパッケージでは、コードカバレッジが常に 100% である必要があります。
+
+ただし、以下の場合においては、テスト対象がカバレッジに含まれないことがあるため注意してください：
+
+1. 単一の return 文のみを含む if 文内（参考： https:/github.com/dart-lang/tools/issues/450)
+2. 三項演算子
+3. assert 文が false の場合
+
+そのため、100% のカバレッジを達成するためだけでなく、上記のようなすべての潜在的なケースをテストする必要があることを念頭に置いてテストを作成してください。
+
+## 実装時の留意点
+
+### ファイル内構成
+
+Repository テストファイル内は以下の構成で組織化します：
+
+1. **プロバイダーテスト**: `{クラス名}Provider のテスト。`
+2. **Repository クラステスト**: `{クラス名} のテスト。`
+   - 各メソッド単位で `{メソッド名} メソッドのテスト。` のグループを作成
+   - 各メソッド内で `成功シナリオ。` と `失敗シナリオ。` のグループに分けてテスト
+
+### モックアノテーションの選択
+- `@GenerateMocks` ではなく `@GenerateNiceMocks([MockSpec<T>()])` を使用する
+- `@GenerateNiceMocks` はスタブされていないメソッドに対してデフォルト値を返すため、より堅牢なテストが可能
+-  `HttpResponse` などのプリミティブではない複雑な型を返すメソッドがある場合、`provideDummy()` により適切なデフォルト値を設定する 
+
+
+### プロバイダーテストの実装
+- `ProviderContainer` を使用して依存するプロバイダー（HttpClient など）をモックで上書き
+- `addTearDown(container.dispose)` でリソースの適切な解放を行う
+
+### レスポンスタイプの統一
+- `HttpResponse.success/failure` ではなく `SuccessHttpResponse/FailureHttpResponse` を使用
+- より明確な型安全性とテストの可読性を提供
+
+// MEMO(masaki): 利用する HttpClient のメソッドによって実装が分岐する。
+### URL の明示的な定義
+- テスト対象の API エンドポイント URL を定数として定義
+- `any` マッチャーではなく具体的な URL を指定してスタブを設定
+- URL パラメータやクエリ文字列を含む完全な URL を検証
+
+### レスポンスデータの詳細検証
+- API レスポンスの全フィールドを検証する
+- DTO の各プロパティが正しく設定されることを確認
+- null 値や空文字列の処理も含めて検証
+
+### 失敗ケースの簡潔な実装
+- 複数の ErrorStatus ケースを個別にテストするのではなく、代表的なケース一つのみをテスト
+- 詳細なエラーハンドリングは HttpClient 層で実装し、Repository 層では簡潔に保つ
+
+## 実装例
+
+```dart
+import 'package:flutter_test/flutter_test.dart';
+import 'package:injection/injection.dart';
+import 'package:mockito/annotations.dart';
+import 'package:mockito/mockito.dart';
+import 'package:repository/repository.dart';
+import 'package:riverpod/riverpod.dart';
+import 'package:system/system.dart';
+
+import 'xxx_repository_test.mocks.dart';
+
+// HttpClient のモッククラスを生成する。
+@GenerateNiceMocks([MockSpec<HttpClient>()])
+void main() {
+  late MockHttpClient mockHttpClient;
+  late XxxRepository xxxRepository;
+
+  setUp(() {
+    mockHttpClient = MockHttpClient();
+    xxxRepository = XxxRepository(httpClient: mockHttpClient);
+    // スタブされていないメソッドが呼び出された場合、ErrorStatus.unknown の失敗レスポンスを返すようにする。
+    provideDummy<HttpResponse>(
+      HttpResponse.failure(e: Exception(), status: ErrorStatus.unknown),
+    );
+  });
+
+  group('xxxRepositoryProvider のテスト。', () {
+    test('xxxRepositoryProvider が XxxRepository を返す。', () {
+      final container = ProviderContainer(
+        // 依存する httpClientProvider をモックで上書きする。
+        overrides: [httpClientProvider.overrideWithValue(mockHttpClient)],
+      );
+      addTearDown(container.dispose);
+
+      expect(
+        container.read(xxxRepositoryProvider),
+        isA<XxxRepository>(),
+      );
+    });
+  });
+
+  group('XxxRepository のテスト。', () {
+    group('methodName メソッドのテスト。', () {
+      /// ダミーの値を用いて処理を実行する。
+      ///
+      /// 成功した場合は、SuccessRepositoryResult を返す。
+      /// 失敗した場合は、FailureRepositoryResult を返す。
+      Future<RepositoryResult<XxxDto>> methodName() async {
+        return xxxRepository.methodName(
+          parameter1: 'testValue1',
+          parameter2: 'testValue2',
+        );
+      }
+
+      /// ダミー値から生成される想定の URL.
+      const url = 'https://example.com/api/endpoint?param1=testValue1&param2=testValue2';
+
+      group('成功シナリオ。', () {
+        test('成功した場合、SuccessRepositoryResult を返す。', () async {
+          // ダミーの値から生成される想定の URL を元にスタブを用意する。
+          when(mockHttpClient.getUri(Uri.parse(url))).thenAnswer((_) async {
+            return const SuccessHttpResponse(
+              jsonData: {
+                'STATUS': '0',
+                'field1': 'value1',
+                'field2': 123,
+                'field3': true,
+                // ... 必要なフィールドを全て定義
+              },
+              headers: {},
+            );
+          });
+
+          // 処理実行時、成功レスポンスが返ってくることを確認する。
+          final result = await methodName();
+          expect(result, isA<SuccessRepositoryResult<XxxDto>>());
+          
+          // 各フィールドの値が正しいことを確認する。
+          final xxxDto = (result as SuccessRepositoryResult<XxxDto>).data;
+          expect(xxxDto.isFailureStatus, false);
+          expect(xxxDto.field1, 'value1');
+          expect(xxxDto.field2, 123);
+          expect(xxxDto.field3, true);
+          // ... 全フィールドの検証
+        });
+      });
+
+      group('失敗シナリオ。', () {
+        test(
+          'SuccessHttpResponse のステータスにより失敗と判断された場合、FailureRepositoryResult を返す。',
+          () async {
+            // ダミーの値から生成される想定の URL を元にスタブを用意する。
+            when(mockHttpClient.getUri(Uri.parse(url))).thenAnswer((_) async {
+              return const SuccessHttpResponse(
+                jsonData: {'STATUS': '1'},
+                headers: {},
+              );
+            });
+
+            // 処理実行時、失敗レスポンスが返ってくることを確認する。
+            final result = await methodName();
+            expect(result, isA<FailureRepositoryResult<XxxDto>>());
+            
+            // 失敗理由が failureStatus であることを確認する。
+            final reason = (result as FailureRepositoryResult<XxxDto>).reason;
+            expect(reason, FailureRepositoryResultReason.failureStatus);
+            
+            // XxxDto の isFailureStatus が true であることを確認する。
+            final xxxDto = result.data;
+            expect(xxxDto, isNotNull);
+            expect(xxxDto!.isFailureStatus, true);
+          },
+        );
+
+        test('失敗した場合、FailureRepositoryResult を返す。', () async {
+          // どの URL の場合でも 404 が返ってくるスタブを用意する。
+          when(mockHttpClient.getUri(any)).thenAnswer((_) async {
+            return FailureHttpResponse(
+              e: Exception(),
+              status: ErrorStatus.notFound,
+              statusCode: 404,
+            );
+          });
+
+          // 処理実行時、失敗レスポンスが返ってくることを確認する。
+          final result = await methodName();
+          expect(result, isA<FailureRepositoryResult<XxxDto>>());
+          
+          final failureResult = result as FailureRepositoryResult<XxxDto>;
+          // reason が FailureRepositoryResultReason.notFound であることを確認する。
+          expect(failureResult.reason, FailureRepositoryResultReason.notFound);
+          // statusCode が 404 であることを確認する。
+          expect(failureResult.statusCode, 404);
+        });
+      });
+    });
+  });
+}
+```
+
+## よくある問題と解決策
+
+### URL 不一致によるテスト失敗
+**問題**: ハードコーディングしたテスト用 URL と実際の Repository で生成される URL が一致せず、テストが失敗する。
+
+**解決策**:
+1. 最初にデバッグ用の `any` マッチャーを使用して実際の URL をログ出力
+2. 出力された URL をコピーしてテスト用の URL 定数を更新
+3. 特に URL エンコーディング（空白 → `+`、スラッシュ → `%2F` など）に注意
+
+**実例**:
+```dart
+// 想定していた URL
+'https://example.com/api?versionInfo=SB%201.0.0%20%2F%20android%2012'
+
+// 実際に生成される URL
+'https://example.com/api?versionInfo=SB+1.0.0+%2F+android+12'
+```
+
+---
+
+このルールファイルが参照されていることを確認するために、返答の最初に「✅ repository-test.mdc」と記載してください。
+ファイルの編集を終えた後、変更内容が上記のルールを遵守していることを確認し、遵守されていない箇所があれば修正を行ってください。その後、返答の最後に「💡 repository-test.mdc」と記載してください。

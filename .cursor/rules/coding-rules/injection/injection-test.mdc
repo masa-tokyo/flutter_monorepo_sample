@@ -1,0 +1,114 @@
+---
+description: 
+globs: packages/injection/test/**
+alwaysApply: false
+---
+# injection-test.mdc
+
+## ファイル構成
+
+injection パッケージのテストファイルは、`lib/src` のディレクトリ構造を `test/src` に反映して配置します。
+
+- ソースファイルが `lib/src/{機能名}/xxx.dart` にある場合、テストファイルは `test/src/{機能名}/xxx_test.dart` に配置する
+- 共通ファイルのテストは `test/src/` 直下に配置する
+
+## 基本的な設計方針
+
+Injection テストは以下の方針で実装します：
+
+1. **プロバイダーテスト**: Riverpod プロバイダーが正しく依存性注入を行うことを確認
+2. **ファクトリー関数テスト**: `getHttpClient()` や `getSharedPreferencesClient()` などのファクトリー関数が適切なインスタンスを生成することを確認
+3. **エラーハンドリングテスト**: 初期化に失敗した場合の適切な例外処理を確認
+
+## コードカバレッジについて
+
+このパッケージでは、コードカバレッジが常に 100% である必要があります。
+
+ただし、以下の場合においては、テスト対象がカバレッジに含まれないことがあるため注意してください：
+
+1. 単一の return 文のみを含む if 文内
+2. 三項演算子
+3. assert 文が false の場合
+
+## 実装時の留意点
+
+### ファイル内構成
+
+Injection テストファイル内は以下の構成で組織化します：
+
+1. **プロバイダーテスト**: `{プロバイダー名} のテスト。`
+2. **ファクトリー関数テスト**: `{関数名} のテスト。`
+   - 各関数単位で成功シナリオとエラーシナリオをテスト
+
+### モックアノテーションの選択
+- HTTP クライアントや SharedPreferences のテストでは、必要に応じて `@GenerateNiceMocks([MockSpec<T>()])` を使用する
+- 実際のプラットフォーム依存のテストが必要な場合は、Integration テストとして別途実装することを検討する
+
+### プロバイダーテストの実装
+- `ProviderContainer` を使用してプロバイダーの動作を確認
+- `setUp()` と `tearDown()` でコンテナの作成と破棄を行う
+- プロバイダーが `UnimplementedError` をスローすることを確認（アプリ起動時に適切に上書きされることを前提とする）
+
+### ファクトリー関数テストの実装
+- `getXxxClient()` が適切な `XxxClient` インスタンスを返すことを確認
+- 必要な依存関係が不足している場合の適切な例外処理を確認
+- パラメータが正しく渡されて期待するクライアントが生成されることを確認
+
+## 実装例
+
+```dart
+import 'package:flutter_test/flutter_test.dart';
+import 'package:injection/injection.dart';
+import 'package:mockito/annotations.dart';
+import 'package:riverpod/riverpod.dart';
+import 'package:system/system.dart';
+
+import 'xxx_injection_test.mocks.dart';
+
+// XxxDependency のモッククラスを生成する。
+@GenerateNiceMocks([MockSpec<XxxDependency>()])
+void main() {
+  group('xxxClientProvider のテスト。', () {
+    late ProviderContainer container;
+
+    setUp(() {
+      container = ProviderContainer();
+    });
+
+    tearDown(() {
+      container.dispose();
+    });
+
+    test('プロバイダーが UnimplementedError をスローする。', () {
+      expect(
+        () => container.read(xxxClientProvider),
+        throwsA(isA<UnimplementedError>()),
+      );
+    });
+  });
+
+  group('getXxxClient のテスト。', () {
+    late MockXxxDependency mockXxxDependency;
+
+    setUp(() {
+      mockXxxDependency = MockXxxDependency();
+    });
+
+    test('dependency が null の場合、例外がスローされる。', () async {
+      // テスト環境では StateError が発生する。
+      await expectLater(getXxxClient, throwsA(isA<StateError>()));
+    });
+    
+    test(
+      'モックの XxxDependency を渡した場合、XxxClient を生成する。',
+      () async {
+        final client = await getXxxClient(
+          dependency: mockXxxDependency,
+        );
+        // 実際の環境を再現するために、モックを使用して返り値を確認する。
+        expect(client, isA<XxxClient>());
+      },
+    );
+  });
+}
+```

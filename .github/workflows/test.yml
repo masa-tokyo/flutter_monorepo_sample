@@ -1,0 +1,99 @@
+name: Test
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    types: [opened, synchronize]
+
+concurrency:
+  # 同じワークフローの同時実行は不要のため途中でキャンセルする。
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        package: [app, base_ui, domain, injection, repository, system, util]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/bootstrap_project
+      - uses: ./.github/actions/install_lcov
+      - name: Run tests for ${{ matrix.package }}
+        run: |
+          # 該当のパッケージに限定したテストコマンドを実行する。
+          echo "Testing package: ${{ matrix.package }}"
+          
+          # Flutter SDK に依存するパッケージかチェックする。
+          if melos list --scope="${{ matrix.package }}" --flutter | grep -q "${{ matrix.package }}"; then
+            echo "Flutter package detected"
+            PACKAGE=${{ matrix.package }} melos run test:flutter
+          
+          # flutter_test に依存するパッケージかチェックする。
+          elif melos list --scope="${{ matrix.package }}" --depends-on="flutter_test" | grep -q "${{ matrix.package }}"; then
+            echo "Flutter test package detected"
+            PACKAGE=${{ matrix.package }} melos run test:flutter-with-coverage
+          
+          # test に依存するパッケージかチェックする。
+          elif melos list --scope="${{ matrix.package }}" --depends-on="test" | grep -q "${{ matrix.package }}"; then
+            echo "Dart test package detected"
+            PACKAGE=${{ matrix.package }} melos run test:dart-with-coverage
+          
+          else
+            echo "No test framework detected for ${{ matrix.package }}"
+            exit 1
+          fi
+      # 他ワークフローと共有するために Artifacts へアップロードする。
+      - name: Upload package test results
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.package }}
+          path: packages/${{ matrix.package }}/coverage/
+          # test:flutter の場合にもワーニングを非表示にする。
+          if-no-files-found: ignore
+        # 前ステップのテスト自体が失敗した場合にも実行する。
+        if: always()
+
+  # 各パッケージの test 完了後にカバレッジのレポートを行う。
+  report-coverage:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      # octocov のコメントを許可する。
+      pull-requests: write
+      # checkout のアクセスを許可する。
+      # permissions を明示的に一つでも設定する場合、それ以外は全て（元々の初期値は true でも) none になるため。
+      # https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/controlling-permissions-for-github_token#overview
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/install_lcov
+      # 各パッケージの test にてアップロードされたカバレッジをダウンロードし、全体のレポートを作成する。
+      - name: Download all test results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-*
+          path: ./test-results
+      - name: Upload coverage to Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: test-results/coverage-*
+      - name: Report code coverage to console
+        run: |
+          echo "Reporting coverage for all packages:"
+          echo ""
+          for dir in test-results/coverage-*; do
+            if [ -f "$dir/lcov_filtered.info" ]; then
+              package_name=$(basename "$dir" | sed 's/^coverage-//')
+              echo "=== $package_name ==="
+              lcov --list "$dir/lcov_filtered.info" --list-full-path
+              echo ""
+            fi
+          done
+      - name: Report coverage to GitHub
+        uses: k1LoW/octocov-action@v1.5.0

@@ -1,0 +1,552 @@
+---
+description: 
+globs: packages/domain/test/**
+alwaysApply: false
+---
+# domain-test.mdc
+
+
+## ファイル構成
+
+domain パッケージのテストファイルは、`lib/src` のディレクトリ構造を `test/src` に反映して配置します。
+
+- ソースファイルが `lib/src/{機能名}/xxx.dart` にある場合、テストファイルは `test/src/{機能名}/xxx_test.dart` に配置する
+- 共通ファイルのテストは `test/src/` 直下に配置する
+
+
+## 基本的な設計方針
+
+Domain テストは以下の方針で実装します：
+
+1. **プロバイダーテスト**: 依存性注入が正しく動作することを確認
+2. **ビジネスロジックテスト**: UseCase のメソッドや Notifier のメソッドが期待通りに動作することを確認
+3. **エラーハンドリングテスト**: 各失敗ケースで適切な例外がスローされることを確認
+4. **パラメータ処理テスト**: 入力パラメータの変換・正規化処理が正しく動作することを確認
+5. **状態管理テスト**: Notifier の場合、状態の変更が正しく反映されることを確認
+
+## コードカバレッジについて
+
+このパッケージでは、コードカバレッジが常に 100% である必要があります。
+
+ただし、以下の場合においては、テスト対象がカバレッジに含まれないことがあるため注意してください：
+
+1. 単一の return 文のみを含む if 文内（参考： https:/github.com/dart-lang/tools/issues/450)
+2. 三項演算子
+3. assert 文が false の場合
+
+そのため、100% のカバレッジを達成するためだけでなく、上記のようなすべての潜在的なケースをテストする必要があることを念頭に置いてテストを作成してください。
+
+## 実装時の留意点
+
+### ファイル内構成
+
+Domain テストファイル内は以下の構成で組織化します：
+
+1. **プロバイダーテスト**: `{クラス名}Provider のテスト。`
+2. **UseCase クラステスト**: `{クラス名} のテスト。`
+   - 各メソッド単位で `{メソッド名} メソッドのテスト。` のグループを作成
+   - 各メソッド内で `成功シナリオ。` と `失敗シナリオ。` のグループに分けてテスト
+
+### モックアノテーションの選択
+- `@GenerateMocks` ではなく `@GenerateNiceMocks([MockSpec<T>()])` を使用する
+- `@GenerateNiceMocks` はスタブされていないメソッドに対してデフォルト値を返すため、より堅牢なテストが可能
+- `RepositoryResult` などのプリミティブではない複雑な型を返すメソッドがある場合、`provideDummy()` により適切なデフォルト値を設定する 
+
+### プロバイダーテストの実装
+- `ProviderContainer` を使用して依存するプロバイダー（Repository など）をモックで上書き
+- `setUp()` と `tearDown()` でコンテナの作成と破棄を行う
+
+
+### 成功シナリオの検証
+- メソッドから返される Domain オブジェクトが正しく生成されることを確認
+- Domain オブジェクトの各プロパティが期待する値に設定されることを検証
+- リポジトリのメソッドが正しい引数で呼び出されることを検証
+- パラメータの変換・正規化処理が正しく動作することを確認
+- Notifier の場合、状態が期待通りに変更されることを確認
+
+### エラーハンドリングの詳細検証
+- `FailureRepositoryResultReason` に基づいて適切な例外（`FailureStatusException`、`GeneralFailureException`）がスローされることを確認
+- 例外の `reason`、`errorCode`、`statusCode` などのプロパティが正しく設定されることを検証
+- 特定の例外ハンドリングが実装されていない場合、リポジトリで発生した例外がリスローされることを確認
+
+### パラメータ処理メソッドのテスト
+- URL 正規化、パスワード暗号化などのユーティリティメソッドを個別にテスト
+- エッジケース（空文字、空白のみ、特殊文字など）を含めて包括的にテスト
+
+
+## 実装例
+
+### UseCase のテスト例
+
+```dart
+import 'package:domain/domain.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:mockito/annotations.dart';
+import 'package:mockito/mockito.dart';
+import 'package:repository/repository.dart';
+import 'package:riverpod/riverpod.dart';
+
+import 'xxx_use_case_test.mocks.dart';
+
+// XxxRepository のモッククラスを生成する。
+@GenerateNiceMocks([MockSpec<XxxRepository>()])
+void main() {
+  late MockXxxRepository mockXxxRepository;
+  late XxxUseCase xxxUseCase;
+
+  setUp(() {
+    mockXxxRepository = MockXxxRepository();
+    xxxUseCase = XxxUseCase(xxxRepository: mockXxxRepository);
+
+    // スタブされていないメソッドが呼び出された場合、適切な失敗結果を返すようにする。
+    provideDummy<RepositoryResult<XxxDto>>(
+      RepositoryResult<XxxDto>.failure(
+        Exception(),
+        reason: FailureRepositoryResultReason.unknown,
+        data: const XxxDto(isFailureStatus: true),
+      ),
+    );
+  });
+
+  group('xxxUseCaseProvider のテスト。', () {
+    test('xxxUseCaseProvider が XxxUseCase を返す。', () {
+      final container = ProviderContainer(
+        overrides: [
+          // 依存するプロバイダーをモックで置き換える。
+          xxxRepositoryProvider.overrideWithValue(mockXxxRepository),
+        ],
+      );
+      addTearDown(container.dispose);
+      expect(container.read(xxxUseCaseProvider), isA<XxxUseCase>());
+    });
+  });
+
+  group('XxxUseCase のテスト。', () {
+    group('invoke メソッドのテスト。', () {
+      /// ダミーの値を用いて処理を実行する。
+      Future<XxxEntity> invoke() async {
+        return xxxUseCase.invoke(
+          parameter1: 'testValue1',
+          parameter2: 'testValue2',
+        );
+      }
+
+      group('成功シナリオ。', () {
+        test('処理に成功した場合、Entity オブジェクトを返す。', () async {
+          // ダミーの値から生成される想定の引数を元にスタブを用意する。
+          when(
+            mockXxxRepository.methodName(
+              parameter1: anyNamed('parameter1'),
+              parameter2: anyNamed('parameter2'),
+            ),
+          ).thenAnswer(
+            (_) async => const RepositoryResult<XxxDto>.success(
+              XxxDto(
+                isFailureStatus: false,
+                field1: 'value1',
+                field2: 123,
+                // ... 必要なフィールドを全て定義
+              ),
+            ),
+          );
+
+          // 処理実行後、返り値が Entity オブジェクトであることを確認する。
+          final result = await invoke();
+          expect(result, isA<XxxEntity>());
+
+          // Entity の値を確認する。
+          expect(result.field1, 'value1');
+          expect(result.field2, 123);
+          // ... 全フィールドの検証
+        });
+      });
+
+      group('失敗シナリオ。', () {
+        /// どの引数で処理を実行しても失敗結果を返す。
+        ///
+        /// 各テスト内では、このメソッドを呼び出してスタブを用意する。
+        void setupMockRepositoryMethod(
+          FailureRepositoryResult<XxxDto> failureResult,
+        ) {
+          when(
+            mockXxxRepository.methodName(
+              parameter1: anyNamed('parameter1'),
+              parameter2: anyNamed('parameter2'),
+            ),
+          ).thenAnswer((_) async => failureResult);
+        }
+
+        test(
+          'failureStatus により失敗した場合、FailureStatusException がスローされる。',
+          () async {
+            // failureStatus により失敗するスタブを用意する。
+            setupMockRepositoryMethod(
+              const FailureRepositoryResult<XxxDto>(
+                {'isFailureStatus': true, 'message': 'test'},
+                reason: FailureRepositoryResultReason.failureStatus,
+                data: XxxDto(isFailureStatus: true, message: 'test'),
+              ),
+            );
+
+            // 処理実行時、FailureStatusException がスローされ、その例外メッセージが正しいことを確認する。
+            expect(
+              invoke,
+              throwsA(
+                isA<FailureStatusException>().having(
+                  (e) => e.message,
+                  'メッセージには Dto の message フィールドの値が格納される。',
+                  'test',
+                ),
+              ),
+            );
+          },
+        );
+
+        test(
+          'noConnection により失敗した場合、GeneralFailureException がスローされる。',
+          () async {
+            // noConnection により失敗するスタブを用意する。
+            setupMockRepositoryMethod(
+              FailureRepositoryResult<XxxDto>(
+                Exception(),
+                reason: FailureRepositoryResultReason.noConnection,
+              ),
+            );
+
+            // 処理実行時、GeneralFailureException がスローされ、その例外の内容が正しいことを確認する。
+            expect(
+              invoke,
+              throwsA(
+                isA<GeneralFailureException>()
+                    .having(
+                      (e) => e.reason,
+                      '失敗理由には noConnectionError が設定される。',
+                      GeneralFailureReason.noConnectionError,
+                    )
+                    .having(
+                      (e) => e.errorCode,
+                      'エラーコードには noConnection の文字列が設定される。',
+                      FailureRepositoryResultReason.noConnection.name,
+                    ),
+              ),
+            );
+          },
+        );
+
+        test('notFound により失敗した場合、GeneralFailureException がスローされる。', () async {
+          // notFound により失敗するスタブを用意する。
+          setupMockRepositoryMethod(
+            FailureRepositoryResult<XxxDto>(
+              Exception(),
+              reason: FailureRepositoryResultReason.notFound,
+            ),
+          );
+
+          // 処理実行時、GeneralFailureException がスローされ、その例外の内容が正しいことを確認する。
+          expect(
+            invoke,
+            throwsA(
+              isA<GeneralFailureException>()
+                  .having(
+                    (e) => e.reason,
+                    '失敗理由には serverUrlNotFoundError が設定される。',
+                    GeneralFailureReason.serverUrlNotFoundError,
+                  )
+                  .having(
+                    (e) => e.errorCode,
+                    'エラーコードには notFound の文字列が設定される。',
+                    FailureRepositoryResultReason.notFound.name,
+                  ),
+            ),
+          );
+        });
+
+        test(
+          'badResponse により失敗した場合、GeneralFailureException がスローされる。',
+          () async {
+            // badResponse により失敗するスタブを用意する。
+            setupMockRepositoryMethod(
+              FailureRepositoryResult<XxxDto>(
+                Exception(),
+                reason: FailureRepositoryResultReason.badResponse,
+                statusCode: 500,
+              ),
+            );
+
+            // 処理実行時、GeneralFailureException がスローされ、その例外の内容が正しいことを確認する。
+            expect(
+              invoke,
+              throwsA(
+                isA<GeneralFailureException>()
+                    .having(
+                      (e) => e.reason,
+                      '失敗理由には badResponse が設定される。',
+                      GeneralFailureReason.badResponse,
+                    )
+                    .having(
+                      (e) => e.errorCode,
+                      'エラーコードには badResponse の文字列が設定される。',
+                      FailureRepositoryResultReason.badResponse.name,
+                    )
+                    .having((e) => e.statusCode, 'ステータスコードが設定される。', 500),
+              ),
+            );
+          },
+        );
+
+        test('その他のエラーにより失敗した場合、GeneralFailureException がスローされる。', () async {
+          // cancel により失敗するスタブを用意する。
+          setupMockRepositoryMethod(
+            FailureRepositoryResult<XxxDto>(
+              Exception(),
+              reason: FailureRepositoryResultReason.cancel,
+            ),
+          );
+
+          // 処理実行時、GeneralFailureException がスローされ、その例外の内容が正しいことを確認する。
+          expect(
+            invoke,
+            throwsA(
+              isA<GeneralFailureException>()
+                  .having(
+                    (e) => e.reason,
+                    '失敗理由には other が設定される。',
+                    GeneralFailureReason.other,
+                  )
+                  .having(
+                    (e) => e.errorCode,
+                    'エラーコードには cancel の文字列が設定される。',
+                    FailureRepositoryResultReason.cancel.name,
+                  ),
+            ),
+          );
+        });
+      });
+    });
+
+    group('utilityMethod メソッドのテスト。', () {
+      test('空文字の場合は assert エラーとなる。', () {
+        // 空文字の場合、AssertionError がスローされることを確認する。
+        expect(
+          () => xxxUseCase.utilityMethod(''),
+          throwsA(isA<AssertionError>()),
+        );
+      });
+
+      test('正常な処理が実行される。', () {
+        // 正常な値の場合、期待する結果が返されることを確認する。
+        final result = xxxUseCase.utilityMethod('testInput');
+        expect(result, 'expectedOutput');
+      });
+
+      test('エッジケースの処理が実行される。', () {
+        // エッジケース（空白のみ、特殊文字など）の処理を確認する。
+        final result = xxxUseCase.utilityMethod('  testInput  ');
+        expect(result, 'expectedTrimmedOutput');
+      });
+    });
+  });
+}
+```
+// MEMO(masaki): LocalConfigNotifier 前提の例になっている
+### Notifier のテスト例
+
+```dart
+import 'package:domain/domain.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:mockito/annotations.dart';
+import 'package:mockito/mockito.dart';
+import 'package:repository/repository.dart';
+import 'package:riverpod/riverpod.dart';
+
+import 'xxx_notifier_test.mocks.dart';
+
+// XxxRepository のモッククラスを生成する。
+@GenerateNiceMocks([MockSpec<XxxRepository>()])
+void main() {
+  late MockXxxRepository mockXxxRepository;
+  late ProviderContainer container;
+
+  setUp(() {
+    mockXxxRepository = MockXxxRepository();
+    container = ProviderContainer(
+      overrides: [
+        xxxRepositoryProvider.overrideWithValue(mockXxxRepository),
+      ],
+    );
+  });
+
+  tearDown(() {
+    container.dispose();
+  });
+
+  group('xxxNotifierProvider のテスト。', () {
+    test('xxxNotifierProvider が XxxNotifier を返す。', () {
+      expect(
+        container.read(xxxNotifierProvider.notifier),
+        isA<XxxNotifier>(),
+      );
+    });
+  });
+
+  group('XxxNotifier のテスト。', () {
+    group('build メソッドのテスト。', () {
+      test('リポジトリから取得したデータで Xxx を生成する。', () {
+        const testValue = 'testValue';
+
+        // getXxx メソッドが指定された値を返すスタブを用意する。
+        when(
+          mockXxxRepository.getXxx(
+            key: XxxKey.value,
+            defaultValue: Xxx.valueDefault,
+          ),
+        ).thenReturn(testValue);
+
+        // state を取得し、期待する値が設定されていることを確認する。
+        final state = container.read(xxxNotifierProvider);
+
+        expect(state, isA<Xxx>());
+        expect(state.value, testValue);
+
+        // リポジトリの getXxx メソッドが正しい引数で呼び出されることを確認する。
+        verify(
+          mockXxxRepository.getXxx(
+            key: XxxKey.value,
+            defaultValue: Xxx.valueDefault,
+          ),
+        ).called(1);
+      });
+
+      test('リポジトリから値が取得できない場合、デフォルト値で Xxx を生成する。', () {
+        // getXxx メソッドがデフォルト値を返すスタブを用意する。
+        when(
+          mockXxxRepository.getXxx(
+            key: XxxKey.value,
+            defaultValue: Xxx.valueDefault,
+          ),
+        ).thenReturn(Xxx.valueDefault);
+
+        // state を取得し、デフォルト値が設定されていることを確認する。
+        final state = container.read(xxxNotifierProvider);
+
+        expect(state, isA<Xxx>());
+        expect(state.value, Xxx.valueDefault);
+
+        // リポジトリの getXxx メソッドが正しい引数で呼び出されることを確認する。
+        verify(
+          mockXxxRepository.getXxx(
+            key: XxxKey.value,
+            defaultValue: Xxx.valueDefault,
+          ),
+        ).called(1);
+      });
+    });
+
+    group('updateValue メソッドのテスト。', () {
+      test('値を正常に更新し、state に反映される。', () async {
+        const initialValue = 'initialValue';
+        const updatedValue = 'updatedValue';
+
+        // 初期値を返すスタブを用意する。
+        when(
+          mockXxxRepository.getXxx(
+            key: XxxKey.value,
+            defaultValue: Xxx.valueDefault,
+          ),
+        ).thenReturn(initialValue);
+
+        // setXxx メソッドが正常に完了するスタブを用意する。
+        when(
+          mockXxxRepository.setXxx(
+            key: XxxKey.value,
+            value: updatedValue,
+          ),
+        ).thenAnswer((_) async => Future<void>.value());
+
+        final notifier = container.read(xxxNotifierProvider.notifier);
+
+        // 初期 state を確認する。
+        var state = container.read(xxxNotifierProvider);
+        expect(state.value, initialValue);
+
+        // 更新後に返される値のスタブを用意する。
+        when(
+          mockXxxRepository.getXxx(
+            key: XxxKey.value,
+            defaultValue: Xxx.valueDefault,
+          ),
+        ).thenReturn(updatedValue);
+
+        // updateValue メソッドを実行する。
+        await notifier.updateValue(updatedValue);
+
+        // state が更新されていることを確認する。
+        state = container.read(xxxNotifierProvider);
+        expect(state.value, updatedValue);
+
+        // リポジトリの setXxx メソッドが正しい引数で呼び出されることを確認する。
+        verify(
+          mockXxxRepository.setXxx(
+            key: XxxKey.value,
+            value: updatedValue,
+          ),
+        ).called(1);
+
+        // リポジトリの getXxx メソッドが呼び出されることを確認する。
+        verify(
+          mockXxxRepository.getXxx(
+            key: XxxKey.value,
+            defaultValue: Xxx.valueDefault,
+          ),
+        ).called(greaterThanOrEqualTo(2)); // build 時と updateValue 時
+      });
+
+      test('setXxx で例外が発生した場合、例外がリスローされる。', () async {
+        const testValue = 'testValue';
+        final testException = Exception('setXxx failed');
+
+        // getXxx メソッドが初期値を返すスタブを用意する。
+        when(
+          mockXxxRepository.getXxx(
+            key: XxxKey.value,
+            defaultValue: Xxx.valueDefault,
+          ),
+        ).thenReturn(Xxx.valueDefault);
+
+        // setXxx メソッドで例外が発生するスタブを用意する。
+        when(
+          mockXxxRepository.setXxx(
+            key: XxxKey.value,
+            value: testValue,
+          ),
+        ).thenThrow(testException);
+
+        final notifier = container.read(xxxNotifierProvider.notifier);
+
+        // 処理実行時、例外がリスローされることを確認する。
+        await expectLater(
+          notifier.updateValue(testValue),
+          throwsA(testException),
+        );
+
+        // リポジトリの setXxx メソッドが呼び出されることを確認する。
+        verify(
+          mockXxxRepository.setXxx(
+            key: XxxKey.value,
+            value: testValue,
+          ),
+        ).called(1);
+      });
+    });
+  });
+}
+```
+
+## よくある問題と解決策
+
+（必要に応じて記載する）
+
+---
+
+このルールファイルが参照されていることを確認するために、返答の最初に「✅ domain-test.mdc」と記載してください。
+ファイルの編集を終えた後、変更内容が上記のルールを遵守していることを確認し、遵守されていない箇所があれば修正を行ってください。その後、返答の最後に「💡 domain-test.mdc」と記載してください。

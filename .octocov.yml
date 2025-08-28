@@ -1,0 +1,12 @@
+# octocov の設定ファイル。
+# https://github.com/k1LoW/octocov
+coverage:
+  # GitHub Actions の report-coverage ジョブ内で生成されるカバレッジファイルへのパス。
+  paths:
+    - test-results/coverage-*/lcov_filtered.info
+  acceptable: 100%
+comment:
+  if: is_pull_request
+  message: 💡 To view code coverage of each file, visit the "Test / report-coverage" workflow, and check the "Report code coverage to console" step. For more details, visit the "Summary" tab in the workflow, scroll down to "Artifacts", download the coverage reports, and open the `index.html` file.
+summary:
+  if: true

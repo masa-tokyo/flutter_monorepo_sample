@@ -1,0 +1,384 @@
+---
+description: 
+globs: packages/domain/lib/**
+alwaysApply: false
+---
+# domain-implementation.mdc
+
+## ファイル構成
+
+### 新しいファイルを作成する際のガイドライン
+
+#### 1. ファイルの配置場所
+
+**機能別ディレクトリに配置する場合:**
+- `lib/src/{機能名}/` 配下に配置する（例: `lib/src/account/`, `lib/src/local_config/`）
+- 関連するエンティティ、UseCase、Notifier を同じディレクトリにまとめる
+- 新しい機能領域の場合は、新しいディレクトリを作成する
+
+**共通ファイルとして配置する場合:**
+- `lib/src/` 直下に配置する（例: `domain_base.dart`, `failure_status_exception.dart`）
+- 複数の機能で共通して利用される例外クラスや基底クラスに適用する
+
+#### 2. ファイルのエクスポート方法
+
+**機能別ディレクトリ内のファイルの場合:**
+1. 該当ディレクトリ内の `_export.dart` ファイルに export 文を追加する
+```dart
+// lib/src/account/_export.dart
+export 'account.dart';
+export 'login_use_case.dart';
+export 'new_file.dart';  // ← 新しいファイルを追加
+```
+`_export.dart` ファイルが存在しない場合は新規作成する。
+
+2. `lib/domain.dart` に該当ディレクトリの `_export.dart` を追加する
+```dart
+// lib/domain.dart
+export 'src/account/_export.dart';
+export 'src/local_config/_export.dart';
+export 'src/new_feature/_export.dart';  // ← 新しい機能ディレクトリを追加
+```
+
+**共通ファイルの場合:**
+- `lib/domain.dart` に直接 export 文を追加する
+```dart
+// lib/domain.dart
+export 'src/domain_base.dart';
+export 'src/failure_status_exception.dart';
+export 'src/new_common_file.dart';  // ← 新しい共通ファイルを追加
+```
+
+#### 3. ファイル命名規則
+
+- **エンティティ**: `{名前}.dart`（例: `account.dart`, `user_profile.dart`）
+- **UseCase**: `{処理名}_use_case.dart`（例: `login_use_case.dart`, `update_profile_use_case.dart`）
+- **Notifier**: `{対象}_notifier.dart`（例: `local_config_notifier.dart`, `user_session_notifier.dart`）
+- **例外クラス**: `{名前}_exception.dart`（例: `validation_exception.dart`）
+
+## 基本的な設計方針
+
+Domain レイヤーは以下の方針で実装します：
+
+1. **依存性注入**: コンストラクタインジェクションを使用し、必要な依存関係（Repository など）を外部から注入する
+2. **Riverpod プロバイダー**: 各 UseCase クラスに対応する `@riverpod` プロバイダー関数を定義し、依存関係を自動解決する
+3. **ビジネスロジックの集約**: ドメイン固有のビジネスルールやバリデーション、データ変換処理を担当する
+4. **例外処理の統一**: ドメイン層で適切な例外（FailureStatusException、GeneralFailureException など）に変換する
+5. **型安全性の確保**: Repository の結果を適切にドメインエンティティに変換する
+
+## 実装パターン
+
+Domain レイヤーには主に以下の 2 つの実装パターンがあります：
+
+### 1. XxxUseCase パターン
+
+#### 用途
+- API コールや外部システムとの連携
+- 複雑なビジネスロジックの実行
+
+#### 実装時の留意点
+
+##### プロバイダー関数の実装
+- `@riverpod` アノテーションを使用してプロバイダー関数を定義する
+- 引数は必ず `Ref ref` を指定し、`*Ref` 型は使用しない
+
+##### コンストラクタの実装
+- `required` キーワードを使用して必須の依存関係を明示する
+- 依存関係はプライベートフィールドに保存し、`_` プレフィックスを付ける
+- 依存関係として Repository のインスタンスを受け取る
+
+##### invoke メソッドの実装
+- UseCase の主処理は `invoke` メソッドに実装する
+- Repository の結果を適切に処理し、ドメインエンティティに変換する
+- エラー処理では適切なドメイン例外にラップする
+
+##### 依存性注入の原則
+- コンストラクタに直接 Ref を渡すことは禁止とし、必要なインスタンスを外部から注入する
+- これにより、単体テストの簡略化や内部での別 Provider の意図しない状態変更の防止といったメリットを享受できる
+
+#### 実装例
+
+```dart
+import 'package:repository/repository.dart';
+import 'package:riverpod/riverpod.dart';
+import 'package:riverpod_annotation/riverpod_annotation.dart';
+
+import '../../domain.dart';
+
+part 'xxx_use_case.g.dart';
+
+/// [XxxUseCase] を提供する。
+@riverpod
+XxxUseCase xxxUseCase(Ref ref) {
+  return XxxUseCase(xxxRepository: ref.watch(xxxRepositoryProvider));
+}
+
+/// XXX に関する処理を行う UseCase.
+class XxxUseCase {
+  /// [XxxUseCase] を生成する。
+  ///
+  /// [xxxRepository] は、XXX に関する通信を行うためのリポジトリ。
+  XxxUseCase({required XxxRepository xxxRepository})
+    : _xxxRepository = xxxRepository;
+
+  final XxxRepository _xxxRepository;
+
+  /// XXX の処理を実行する。
+  Future<DomainEntity> invoke({
+    required String parameter1,
+    String? parameter2,
+  }) async {
+    final result = await _xxxRepository.fetchData(
+      parameter1: parameter1,
+      parameter2: parameter2,
+    );
+
+    switch (result) {
+      case SuccessRepositoryResult(:final data):
+        return DomainEntity.fromDto(data);
+      case FailureRepositoryResult(
+        :final reason,
+        :final data,
+        :final statusCode,
+      ):
+        switch (reason) {
+          case FailureRepositoryResultReason.failureStatus:
+            throw FailureStatusException(data!.message);
+          case FailureRepositoryResultReason.noConnection:
+          case FailureRepositoryResultReason.connectionTimeout:
+            throw GeneralFailureException(
+              reason: GeneralFailureReason.noConnectionError,
+              errorCode: reason.name,
+            );
+          case FailureRepositoryResultReason.notFound:
+          case FailureRepositoryResultReason.connectionError:
+            throw GeneralFailureException(
+              reason: GeneralFailureReason.serverUrlNotFoundError,
+              errorCode: reason.name,
+            );
+          case FailureRepositoryResultReason.badResponse:
+            throw GeneralFailureException.badResponse(
+              errorCode: reason.name,
+              statusCode: statusCode,
+            );
+          case _:
+            throw GeneralFailureException(
+              reason: GeneralFailureReason.other,
+              errorCode: reason.name,
+            );
+        }
+    }
+  }
+
+  /// ヘルパーメソッドの例（必要に応じて）。
+  ///
+  /// テスト可能性のため `@visibleForTesting` アノテーションを付ける。
+  @visibleForTesting
+  String normalizeInput(String input) {
+    return input.trim().toLowerCase();
+  }
+}
+```
+
+### 2. XxxNotifier パターン
+
+#### 用途
+- アプリケーション全体で共有される状態の管理
+- リアルタイムでの状態変更とその通知
+- 永続化が必要な設定値の管理
+
+#### 実装時の留意点
+
+##### Notifier クラスの実装
+- `@Riverpod(keepAlive: true)` アノテーションを使用（永続的な状態管理の場合）
+- `_$クラス名` を継承する（riverpod_generator による自動生成）
+- `build()` メソッドで初期状態を定義する
+
+##### 状態管理
+- 状態は `state` プロパティで管理する
+- 状態変更時は `state = newState` で更新する
+- イミュータブルな状態オブジェクトを使用し、`copyWith` で部分更新する
+
+##### Repository アクセス
+- Repository へのアクセスは `ref.read()` を使用する
+- getter を定義してアクセスを簡潔にする
+
+#### 実装例
+
+// MEMO(masaki): LocalConfig 前提なので、もう少し汎用的な例出て来たら差し替える
+```dart
+import 'package:repository/repository.dart';
+import 'package:riverpod_annotation/riverpod_annotation.dart';
+
+import '../../domain.dart';
+
+part 'xxx_notifier.g.dart';
+
+/// [XxxConfig] を管理する Notifier.
+///
+/// 必ず [InitXxxUseCase] の実行後に利用する。
+@Riverpod(keepAlive: true)
+class XxxNotifier extends _$XxxNotifier {
+  /// リポジトリ。
+  XxxRepository get _repository => ref.read(xxxRepositoryProvider);
+
+  /// [_repository] から取得した設定値。
+  String get _configValue {
+    return _repository.getString(
+      key: XxxConfigKey.configValue,
+      defaultValue: XxxConfig.configValueDefault,
+    );
+  }
+
+  @override
+  XxxConfig build() {
+    return XxxConfig(configValue: _configValue);
+  }
+
+  /// 設定値を更新する。
+  ///
+  /// [value] で指定された設定値をローカル設定に保存し、取得し直した値を [state] に反映する。
+  Future<void> updateConfigValue(String value) async {
+    await _repository.setString(key: XxxConfigKey.configValue, value: value);
+    state = state.copyWith(configValue: _configValue);
+  }
+
+  /// 複数の設定を一括更新する。
+  Future<void> updateMultipleSettings({
+    String? configValue1,
+    int? configValue2,
+  }) async {
+    // 複数の更新処理
+    if (configValue1 != null) {
+      await _repository.setString(key: XxxConfigKey.configValue1, value: configValue1);
+    }
+    if (configValue2 != null) {
+      await _repository.setInt(key: XxxConfigKey.configValue2, value: configValue2);
+    }
+
+    // 状態を一括更新
+    state = state.copyWith(
+      configValue1: configValue1 ?? state.configValue1,
+      configValue2: configValue2 ?? state.configValue2,
+    );
+  }
+}
+```
+
+## ビジネスロジックの実装
+
+### バリデーション
+- ビジネスルールに基づくバリデーションを実装する
+- アサーションを使用して前提条件をチェックする
+
+```dart
+/// サーバー URL を正規化する。
+@visibleForTesting
+String normalizeServerUrl(String serverUrl) {
+  // serverUrl はバリデーションにより空文字にはなっていない。
+  assert(serverUrl.isNotEmpty, 'serverUrl must not be empty');
+
+  // 不要な空白をトリムする。
+  final trimmedUrl = serverUrl.trim();
+
+  // ビジネスルールに従った正規化処理
+  final normalizedUrl =
+      (trimmedUrl.startsWith('http://') || trimmedUrl.startsWith('https://'))
+      ? trimmedUrl
+      : 'https://$trimmedUrl';
+
+  return normalizedUrl.endsWith('/') ? normalizedUrl : '$normalizedUrl/';
+}
+```
+
+### データ変換
+- DTO からドメインエンティティへの変換
+- 暗号化やエンコーディングなどの業務ロジック
+
+```dart
+/// パスワードを暗号化する。
+///
+/// 不要な空白をトリムした後、AES-128bit で暗号化し、Base64 にエンコードして返す。
+@visibleForTesting
+String encryptPassword(String password, {required String encryptionKey}) {
+  final trimmedPassword = password.trim();
+  if (trimmedPassword.isEmpty) {
+    return '';
+  }
+
+  // 業務固有の暗号化処理
+  final key = encrypt.Key.fromUtf8(encryptionKey);
+  final encrypter = encrypt.Encrypter(
+    encrypt.AES(key, mode: encrypt.AESMode.ecb),
+  );
+  final encrypted = encrypter.encrypt(
+    trimmedPassword,
+    iv: encrypt.IV.fromLength(0),
+  );
+
+  return base64UrlEncode(encrypted.bytes);
+}
+```
+
+## 例外処理
+
+### 適切な例外への変換
+Repository の結果を受けて、適切なドメイン例外に変換します：
+
+- `FailureStatusException`: API がエラーステータスを返した場合
+- `GeneralFailureException`: ネットワークエラーや予期しないエラーの場合
+
+### エラーマッピング
+```dart
+switch (reason) {
+  case FailureRepositoryResultReason.failureStatus:
+    throw FailureStatusException(data!.message);
+  case FailureRepositoryResultReason.noConnection:
+  case FailureRepositoryResultReason.connectionTimeout:
+    throw GeneralFailureException(
+      reason: GeneralFailureReason.noConnectionError,
+      errorCode: reason.name,
+    );
+  case FailureRepositoryResultReason.notFound:
+  case FailureRepositoryResultReason.connectionError:
+    throw GeneralFailureException(
+      reason: GeneralFailureReason.serverUrlNotFoundError,
+      errorCode: reason.name,
+    );
+  case FailureRepositoryResultReason.badResponse:
+    throw GeneralFailureException.badResponse(
+      errorCode: reason.name,
+      statusCode: statusCode,
+    );
+  case _:
+    throw GeneralFailureException(
+      reason: GeneralFailureReason.other,
+      errorCode: reason.name,
+    );
+}
+```
+
+## テスト可能性
+
+### ヘルパーメソッドの可視性
+- 複雑なロジックは別メソッドに分離し、`@visibleForTesting` アノテーションを付ける
+- 単体テストで個別にテストできるようにする
+
+### 依存関係の注入
+- Repository などの依存関係をコンストラクタで注入することで、モックを使ったテストが容易になる
+
+## よくある問題と解決策
+
+### Notifier での状態更新タイミング
+- Repository の更新後、必ず最新の値を取得してから状態を更新する
+- 非同期処理中の状態の一貫性に注意する
+
+### UseCase の責務範囲
+- 1つの UseCase は 1つの明確な責務のみを持つ
+// MEMO(masaki): 現状例が無いため別途調整
+- 複数の Repository を横断する処理や、複雑なビジネスロジックの調整役として機能する
+
+---
+
+このルールファイルが参照されていることを確認するために、返答の最初に「✅ domain-implementation.mdc」と記載してください。
+ファイルの編集を終えた後、変更内容が上記のルールを遵守していることを確認し、遵守されていない箇所があれば修正を行ってください。その後、返答の最後に「💡 domain-implementation.mdc」と記載してください。

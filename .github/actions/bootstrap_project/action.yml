@@ -1,0 +1,18 @@
+name: Bootstrap Project
+description: Run common steps for Bootstrap Project
+runs:
+  using: composite
+  steps:
+    - uses: kuhnroyal/flutter-fvm-config-action/setup@v3
+      with:
+        cache: true
+    - run: echo "MELOS_SDK_PATH=${{ env.FLUTTER_ROOT }}" >> $GITHUB_ENV
+      shell: bash
+    # octocov のバイナリが壊れているので都度該当のキャッシュを削除する。
+    - run: |
+        if [ -f "$HOME/.pub-cache/bin/octocov" ]; then
+          echo "Removing corrupted octocov binary from pub cache"
+          rm -f "$HOME/.pub-cache/bin/octocov"
+        fi
+      shell: bash
+    - uses: bluefireteam/melos-action@v3

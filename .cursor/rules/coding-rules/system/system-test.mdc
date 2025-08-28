@@ -1,0 +1,156 @@
+---
+description: 
+globs: packages/system/test/**
+alwaysApply: false
+---
+# system-test.mdc
+
+## ファイル構成
+
+system パッケージのテストファイルは、`lib/src` のディレクトリ構造を `test/src` に反映して配置します。
+
+- ソースファイルが `lib/src/{機能名}/xxx.dart` にある場合、テストファイルは `test/src/{機能名}/xxx_test.dart` に配置する
+- 機能別ディレクトリ内のテストファイルは関連する実装と同じディレクトリ構造を維持する
+
+## 基本的な設計方針
+
+System テストは以下の方針で実装します：
+
+1. **3rd パーティライブラリのモック化**: 依存する外部ライブラリを適切にモック化し、システム境界をテストする
+2. **ラッパー動作のテスト**: 3rd パーティライブラリのメソッドが正しい引数で呼び出されることを確認
+3. **例外伝播テスト**: 下位レイヤーで発生した例外が適切に上位に伝播されることを確認
+4. **ログ出力テスト**: 予期しないエラーで適切にログが出力されることを確認
+
+## コードカバレッジについて
+
+このパッケージでは、コードカバレッジが常に 100% である必要があります。
+
+ただし、以下の場合においては、テスト対象がカバレッジに含まれないことがあるため注意してください：
+
+1. 単一の return 文のみを含む if 文内
+2. 三項演算子
+3. assert 文が false の場合
+
+## 実装時の留意点
+
+### ファイル内構成
+
+System テストファイル内は以下の構成で組織化します：
+
+**クライアントクラステスト**: `{クラス名} のテスト。`
+- 各メソッド単位で `{メソッド名} メソッドのテスト。` のグループを作成
+- 各メソッド内で正常ケース、予期されるエラー、予期しないエラーのテストを実装
+
+### モックアノテーションの選択
+- `@GenerateMocks` ではなく `@GenerateNiceMocks([MockSpec<T>()])` を使用する
+- `@GenerateNiceMocks` はスタブされていないメソッドに対してデフォルト値を返すため、より堅牢なテストが可能
+
+### 3rd パーティライブラリのモック戦略
+- 直接依存する 3rd パーティライブラリのインターフェースをモック化する
+- システムクライアントが 3rd パーティライブラリの適切なメソッドを呼び出すことを verify で確認
+- 3rd パーティライブラリから投げられる例外をシミュレートして例外伝播をテスト
+
+### ログテストの実装
+- 予期しないエラーでログが出力されることを確認
+- `Logger.setupLogging()` を使用してログレコードをキャプチャ
+- 予期されるエラーではログが出力されないことも確認
+
+## 実装例
+
+### 基本的なテストファイル構造
+
+```dart
+import 'package:flutter_test/flutter_test.dart';
+import 'package:mockito/annotations.dart';
+import 'package:mockito/mockito.dart';
+import 'package:system/src/xxx/xxx_client.dart';
+import 'package:util/util.dart';
+
+import 'xxx_client_test.mocks.dart';
+
+// 3rd パーティライブラリのモッククラスを生成する。
+@GenerateNiceMocks([MockSpec<ThirdPartyLibrary>()])
+void main() {
+  late MockThirdPartyLibrary mockThirdPartyLibrary;
+  late XxxClient client;
+
+  setUp(() {
+    mockThirdPartyLibrary = MockThirdPartyLibrary();
+    client = XxxClient(mockThirdPartyLibrary);
+  });
+
+  group('XxxClient のテスト。', () {
+    group('methodName メソッドのテスト。', () {
+      test('正常な処理で期待する結果を返す。', () async {
+        // テストデータとスタブの設定
+        // メソッド実行
+        // 結果の検証
+        // 3rd パーティライブラリの呼び出し確認
+      });
+
+      test('予期される例外が発生した場合、適切にハンドリングされる。', () async {
+        // 予期される例外のテスト
+      });
+
+      test('予期しない例外が発生した場合、例外が伝播しログが出力される。', () async {
+        // 予期しない例外のテスト + ログテスト
+      });
+    });
+  });
+}
+```
+
+### ログテストの実装パターン
+
+```dart
+final logRecords = <LogRecord>[];
+final subscription = Logger.setupLogging(logRecords.add);
+addTearDown(() async {
+  await subscription.cancel();
+});
+
+// テスト実行後
+expect(logRecords, isEmpty); // ログが出力されないことを確認
+// または
+expect(
+  logRecords,
+  anyElement(
+    predicate<LogRecord>(
+      (record) => record.message.contains('期待するログメッセージ'),
+    ),
+  ),
+); // 特定のログが出力されることを確認
+```
+
+## テスト実装の考慮事項
+
+### エラー分類とログ制御
+- **予期されるエラー** (例: 404 Not Found): 適切な `ErrorStatus` で分類し、ログを出力しない
+- **予期しないエラー** (例: 500 Server Error): ログを出力してトラブルシューティングを支援
+- **一般的な Exception**: `ErrorStatus.unknown` として扱い、ログを出力
+
+### レスポンステストの包括性
+- **成功レスポンス**: データとメタデータの両方を検証
+- **失敗レスポンス**: エラーステータス、ステータスコード、例外オブジェクトを検証
+- **複雑なデータ構造**: ネストしたオブジェクトやカスタム属性のテスト
+
+### モック検証のパターン
+- 3rd パーティライブラリのメソッドが正しい引数で呼び出されることを `verify()` で確認
+- 呼び出し回数も含めて検証 (`.called(1)` など)
+- 例外発生時でも適切にメソッドが呼び出されていることを確認
+
+## 新しいクライアントテストの追加
+
+新しいクライアントのテストを追加する場合は、以下の手順に従ってください：
+
+1. **テストファイル作成**: `test/src/{機能名}/{クライアント名}_test.dart` を作成
+2. **モックアノテーション設定**: 依存する 3rd パーティライブラリのモッククラスを生成
+3. **基本テスト実装**: 各メソッドの正常ケース、予期されるエラー、予期しないエラーをテスト
+4. **ログテスト実装**: 適切なログ出力制御がされていることを確認
+5. **カバレッジ確認**: 100% のコードカバレッジを達成していることを確認
+
+---
+
+このルールファイルが参照されていることを確認するために、返答の最初に「✅ system-test.mdc」と記載してください。
+ファイルの編集を終えた後、変更内容が上記のルールを遵守していることを確認し、遵守されていない箇所があれば修正を行ってください。その後、返答の最後に「💡 system-test.mdc」と記載してください。
+

@@ -1,0 +1,206 @@
+---
+description: 
+globs: packages/repository/lib/**
+alwaysApply: false
+---
+# repository-implementation.mdc
+
+## ファイル構成
+
+### 新しいファイルを作成する際のガイドライン
+
+#### 1. ファイルの配置場所
+
+**機能別ディレクトリに配置する場合:**
+- `lib/src/{機能名}/` 配下に配置する（例: `lib/src/account/`, `lib/src/local_config/`）
+- 関連する Repository クラス、DTO クラス、テストファイルを同じディレクトリにまとめる
+- 新しい機能領域の場合は、新しいディレクトリを作成する
+
+**共通ファイルとして配置する場合:**
+- `lib/src/` 直下に配置する（例: `repository_result.dart`, `flexible_bool_converter.dart`）
+- 複数の機能で共通して利用される結果型、コンバーター、ユーティリティクラスに適用する
+
+#### 2. ファイルのエクスポート方法
+
+**機能別ディレクトリ内のファイルの場合:**
+1. 該当ディレクトリ内の `_export.dart` ファイルに export 文を追加する
+```dart
+// lib/src/account/_export.dart
+export 'account_dto.dart';
+export 'account_repository.dart';
+export 'new_file.dart';  // ← 新しいファイルを追加
+```
+`_export.dart` ファイルが存在しない場合は新規作成する。
+
+2. `lib/repository.dart` に該当ディレクトリの `_export.dart` を追加する
+```dart
+// lib/repository.dart
+export 'src/account/_export.dart';
+export 'src/local_config/_export.dart';
+export 'src/new_feature/_export.dart';  // ← 新しい機能ディレクトリを追加
+```
+
+**共通ファイルの場合:**
+- `lib/repository.dart` に直接 export 文を追加する
+```dart
+// lib/repository.dart
+export 'src/repository_result.dart';
+export 'src/flexible_bool_converter.dart';
+export 'src/new_common_file.dart';  // ← 新しい共通ファイルを追加
+```
+
+#### 3. ファイル命名規則
+
+- **Repository クラス**: `{対象名}_repository.dart`（例: `account_repository.dart`, `user_profile_repository.dart`）
+- **DTO クラス**: `{対象名}_dto.dart`（例: `account_dto.dart`, `api_response_dto.dart`）
+- **コンバータークラス**: `{名前}_converter.dart`（例: `flexible_bool_converter.dart`）
+- **結果型クラス**: `{名前}_result.dart`（例: `repository_result.dart`）
+
+## 基本的な設計方針
+
+Repository レイヤーは以下の方針で実装します：
+
+1. **依存性注入**: コンストラクタインジェクションを使用し、必要な依存関係（HttpClient、SharedPreferencesClient など）を外部から注入する
+2. **Riverpod プロバイダー**: 各 Repository クラスに対応する `@riverpod` プロバイダー関数を定義し、依存関係を自動解決する
+3. **結果の統一**: すべての非同期メソッドは `RepositoryResult<T>` 型を返し、成功・失敗を明確に区別する
+4. **DTO の活用**: API レスポンスは専用の DTO クラスに変換し、型安全性を確保する
+5. **エラーハンドリング**: HttpResponse の種類に応じて適切な FailureRepositoryResultReason を設定する
+
+## 実装時の留意点
+
+### プロバイダー関数の実装
+- `@riverpod` アノテーションを使用してプロバイダー関数を定義する
+- 引数は必ず `Ref ref` を指定し、`*Ref` 型は使用しない
+
+### コンストラクタの実装
+- `required` キーワードを使用して必須の依存関係を明示する
+- 依存関係はプライベートフィールドに保存し、`_` プレフィックスを付ける
+
+### メソッドの戻り値
+- 非同期処理を行うメソッドは `Future<RepositoryResult<T>>` を返す
+- 同期処理のみの場合は直接値を返しても良い（LocalConfigRepository の例参照）
+
+### HttpResponse の処理
+- `switch` 文を使用して `SuccessHttpResponse` と `FailureHttpResponse` を分岐処理する
+- `SuccessHttpResponse` の場合も DTO の `isFailureStatus` をチェックし、失敗ステータスなら `FailureRepositoryResult` を返す
+- `FailureHttpResponse` の場合は `FailureRepositoryResultReason.fromString()` を使用して理由を変換する
+
+// MEMO(masaki): 利用する HttpClient のメソッドによって実装が分岐する。
+### URL の構築
+- クエリパラメータを含む URL は `Uri.parse().replace()` メソッドを使用して構築する
+- パラメータは `Map<String, String>` で定義し、条件付きパラメータは適切に処理する
+
+### 定数の定義
+- API バージョンなど共通の値は `static const` として定義する
+- 複数の Repository で共通する値は別途共通化を検討する
+
+### 依存性注入の原則
+- コンストラクタに直接 Ref を渡すことは禁止とし、必要なインスタンスを外部から注入する
+- これにより、単体テストの簡略化やクラス内部での別 Provider の意図しない状態変更の防止といったメリットを享受出来る
+
+例：
+```dart
+// ✅ DO
+class XxxRepository {
+  XxxRepository({required HttpClient httpClient})
+    : _httpClient = httpClient;
+
+  final HttpClient _httpClient;
+
+}
+
+// ❌ DON'T
+class XxxRepository {
+  XxxRepository(this._ref);
+
+  final Ref _ref;
+}
+
+```
+
+## 実装例
+
+```dart
+import 'package:injection/injection.dart';
+import 'package:riverpod/riverpod.dart';
+import 'package:riverpod_annotation/riverpod_annotation.dart';
+import 'package:system/system.dart';
+
+import '../repository_result.dart';
+import 'xxx_dto.dart';
+
+part 'xxx_repository.g.dart';
+
+/// [XxxRepository] を提供する。
+@riverpod
+XxxRepository xxxRepository(Ref ref) {
+  return XxxRepository(httpClient: ref.watch(httpClientProvider));
+}
+
+/// XXX に関する通信を行うためのリポジトリ。
+class XxxRepository {
+  /// [XxxRepository] を生成する。
+  ///
+  /// [httpClient] は、HTTP 通信を行うためのクライアント。
+  XxxRepository({required HttpClient httpClient})
+    : _httpClient = httpClient;
+
+  final HttpClient _httpClient;
+
+  /// API バージョン。
+  static const _apiVersion = 7;
+
+  /// データを取得する。
+  ///
+  /// - [parameter1] は、必須パラメータの説明。
+  /// - [parameter2] は、オプションパラメータの説明。
+  Future<RepositoryResult<XxxDto>> fetchData({
+    required String parameter1,
+    String? parameter2,
+  }) async {
+    final queryParams = <String, String>{
+      'param1': parameter1,
+      if (parameter2 != null) 'param2': parameter2,
+      'api': _apiVersion.toString(),
+    };
+
+    final uri = Uri.parse('https://api.example.com').replace(
+      path: '/api/endpoint',
+      queryParameters: queryParams,
+    );
+
+    final response = await _httpClient.getUri(uri);
+
+    switch (response) {
+      case SuccessHttpResponse(jsonData: final jsonData):
+        final xxxDto = XxxDto.fromJson(jsonData);
+
+        if (xxxDto.isFailureStatus) {
+          return FailureRepositoryResult(
+            jsonData,
+            reason: FailureRepositoryResultReason.failureStatus,
+            data: xxxDto,
+          );
+        }
+
+        return SuccessRepositoryResult(xxxDto);
+      case FailureHttpResponse(:final e, :final status, :final statusCode):
+        final reason = FailureRepositoryResultReason.fromString(status.name);
+        return RepositoryResult.failure(
+          e,
+          reason: reason,
+          statusCode: statusCode,
+        );
+    }
+  }
+}
+```
+
+
+## よくある問題と解決策
+
+
+---
+
+このルールファイルが参照されていることを確認するために、返答の最初に「✅ repository-implementation.mdc」と記載してください。
+ファイルの編集を終えた後、変更内容が上記のルールを遵守していることを確認し、遵守されていない箇所があれば修正を行ってください。その後、返答の最初に「💡 repository-implementation.mdc」と記載してください。

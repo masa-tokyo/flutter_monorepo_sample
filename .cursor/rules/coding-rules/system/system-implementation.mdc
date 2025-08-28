@@ -1,0 +1,157 @@
+---
+description: 
+globs: packages/system/lib/**
+alwaysApply: false
+---
+# system-implementation.mdc
+
+## システムパッケージについて
+
+system パッケージは、3rd パーティのツールをラップして汎用的な処理のためのインターフェースを提供するパッケージです。
+現在、以下の 2 つの主要なクライアントが実装されています：
+
+1. **HttpClient** - HTTP 通信を行うクライアント
+2. **SharedPreferencesClient** - ローカル設定を管理するクライアント
+
+## ファイル構成
+
+### 新しいファイルを作成する際のガイドライン
+
+#### 1. ファイルの配置場所
+
+**機能別ディレクトリに配置する場合:**
+- `lib/src/{機能名}/` 配下に配置する（例: `lib/src/http/`, `lib/src/local_config/`）
+- 関連するクライアントクラス、レスポンスクラス、インターセプターを同じディレクトリにまとめる
+- 新しい機能領域の場合は、新しいディレクトリを作成する
+
+**共通ファイルとして配置する場合:**
+- `lib/src/` 直下に配置する（例: `system_base.dart`）
+- 複数の機能で共通して利用される基底クラスやユーティリティクラスに適用する
+
+#### 2. ファイルのエクスポート方法
+
+**機能別ディレクトリ内のファイルの場合:**
+1. 該当ディレクトリ内の `_export.dart` ファイルに export 文を追加する
+```dart
+// lib/src/http/_export.dart
+export 'dio_http_client.dart';
+export 'http_client.dart';
+export 'http_response.dart';
+export 'new_file.dart';  // ← 新しいファイルを追加
+```
+`_export.dart` ファイルが存在しない場合は新規作成する。
+
+2. `lib/system.dart` に該当ディレクトリの `_export.dart` を追加する
+```dart
+// lib/system.dart
+export 'src/http/_export.dart';
+export 'src/local_config/_export.dart';
+export 'src/new_feature/_export.dart';  // ← 新しい機能ディレクトリを追加
+```
+
+**共通ファイルの場合:**
+- `lib/system.dart` に直接 export 文を追加する
+```dart
+// lib/system.dart
+export 'src/system_base.dart';
+export 'src/new_common_file.dart';  // ← 新しい共通ファイルを追加
+```
+
+#### 3. ファイル命名規則
+
+- **クライアントクラス**: `{対象名}_client.dart`（例: `http_client.dart`, `shared_preferences_client.dart`）
+- **レスポンスクラス**: `{対象名}_response.dart`（例: `http_response.dart`）
+- **インターセプタークラス**: `{機能名}_interceptor.dart`（例: `connectivity_interceptor.dart`）
+- **例外クラス**: `{対象名}_exception.dart`（例: `network_connection_dio_exception.dart`）
+
+## 基本的な設計方針
+
+System レイヤーは以下の方針で実装します：
+
+1. **3rd パーティライブラリのラッピング**: 外部依存を隠蔽し、アプリケーション固有のインターフェースを提供する
+2. **エラー処理の統一**: 各クライアントで適切な例外処理を行い、上位レイヤーで扱いやすい形に変換する
+3. **設定の集約**: タイムアウト値やその他の設定を一箇所で管理し、保守性を向上させる
+4. **テスタビリティ**: 依存性注入により、テスト時に mock クライアントを利用可能にする
+
+## HttpClient の実装について
+
+### 構成要素
+
+HttpClient は以下のクラスで構成されています：
+
+- **HttpClient**: HTTP リクエストを行うメインクライアント
+- **DioHttpClient**: Dio パッケージの実装詳細をラップするクライアント
+- **HttpResponse**: レスポンスの成功・失敗を表現する sealed class
+- **ConnectivityInterceptor**: ネットワーク接続を確認するインターセプター
+- **ErrorStatus**: HTTP エラーの種別を表現する enum
+
+### 実装時の留意点
+
+#### HttpClient クラス
+- コンストラクタで `DioHttpClient` を受け取り、外部からの依存関係注入を可能にする
+- すべての HTTP エラーを内部でキャッチし、`HttpResponse.failure` として統一的に処理する
+- JSON レスポンスは自動的に `JsonMap` 型にデコードして返す
+
+#### エラーハンドリング
+- `DioException` を直接露出せず、`ErrorStatus` enum で分類して返す
+- ネットワーク接続エラーは `ConnectivityInterceptor` で事前に検出する
+- 想定外のエラーについてはログ出力を行う（現在はコメントアウト）
+
+#### レスポンス処理
+- `HttpResponse` sealed class により成功・失敗を型安全に処理する
+- 成功時は `jsonData` と `headers` を含む `SuccessHttpResponse` を返す
+- 失敗時は例外オブジェクト、エラー種別、ステータスコードを含む `FailureHttpResponse` を返す
+
+### 使用例
+
+HttpClient の具体的な使用方法については、以下のファイルを参照してください：
+
+- [packages/repository/lib/src/account/account_repository.dart](mdc:packages/repository/lib/src/account/account_repository.dart) - Repository でのHttpClient利用例
+- [packages/injection/lib/src/injection_base.dart](mdc:packages/injection/lib/src/injection_base.dart) - 依存性注入の設定例
+- [packages/repository/test/src/account/account_repository_test.dart](mdc:packages/repository/test/src/account/account_repository_test.dart) - テストでのモック使用例
+
+## SharedPreferencesClient の実装について
+
+### 構成要素
+
+SharedPreferencesClient は以下の要素で構成されています：
+
+- **SharedPreferencesClient**: SharedPreferences を操作するラッパークラス
+- **SharedPreferencesKey**: 使用可能なキーを定義する enum
+
+### 実装時の留意点
+
+#### 初期化処理
+- アプリ起動時に `init()` メソッドを必ず呼び出す
+- `SharedPreferencesWithCache` を使用してキャッシュから同期的な読み込みを可能にする
+- `allowList` により `SharedPreferencesKey` で定義されたキーのみ読み書きを許可する
+
+#### キー管理
+- すべてのキーは `SharedPreferencesKey` enum で管理する
+- 新しいキーを追加する場合は enum に値を追加し、型安全性を確保する
+
+#### データ型対応
+- 新しい型が必要な場合は対応するメソッドペアを追加する（`setXxx` / `getXxx`）
+
+### 使用例
+
+SharedPreferencesClient の具体的な使用方法については、以下のファイルを参照してください：
+
+- [packages/repository/lib/src/local_config/local_config_repository.dart](mdc:packages/repository/lib/src/local_config/local_config_repository.dart) - Repository でのSharedPreferencesClient 利用例
+- [packages/app/lib/main.dart](mdc:packages/app/lib/main.dart) - アプリ起動時の初期化設定例
+- [packages/repository/test/src/local_config/local_config_repository_test.dart](mdc:packages/repository/test/src/local_config/local_config_repository_test.dart) - テストでのモック使用例
+
+## 新しいクライアントの追加
+
+新しいクライアントを追加する場合は、以下の手順に従ってください：
+
+1. **ディレクトリ作成**: `lib/src/{機能名}/` ディレクトリを作成
+2. **クライアントクラス実装**: 3rd パーティライブラリをラップするクライアントクラスを作成
+3. **エラーハンドリング**: 適切な例外処理と統一的なエラー表現を実装
+4. **エクスポート設定**: `_export.dart` ファイルを作成し、`lib/system.dart` に追加
+5. **ドキュメント更新**: 本ファイルに新しいクライアントの説明を追加
+
+---
+
+このルールファイルが参照されていることを確認するために、返答の最初に「✅ system-implementation.mdc」と記載してください。
+ファイルの編集を終えた後、変更内容が上記のルールを遵守していることを確認し、遵守されていない箇所があれば修正を行ってください。その後、返答の最後に「💡 system-implementation.mdc」と記載してください。
