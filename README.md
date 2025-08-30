@@ -8,7 +8,7 @@
 本リポジトリは以下の開発環境を前提としています。
 
 - 対応 OS: macOS / Windows
-- IDE: Visual Studio Code
+- IDE: Cursor / Claude Code
 
 
 ### 1. セットアップコマンドの実行
