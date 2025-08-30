@@ -74,80 +74,6 @@ https://docs.flutter.dev/get-started/install/windows
 
 ドキュメント内で指示される [Flutter SDK のインストール](https://docs.flutter.dev/get-started/install/macos/mobile-ios#install-the-flutter-sdk) は既に前のステップで FVM の global コマンドを利用した形で行なっているため、不要です。
 
-#### cocoapods のインストールについて
-
-iOS における [CocoaPods のインストール](https://docs.flutter.dev/get-started/install/macos/mobile-ios#install-cocoapods)のステップにて `sudo gem install cocoapods` コマンドが成功しない場合（or インストール後に `flutter doctor` により CocoaPods 関連のエラーが発生している場合）、インストール時にシステムに元々入っている Ruby を利用しており、そのバージョンが適切でない可能性があります。このような場合、以下の手順に沿って [rbenv](https://github.com/rbenv/rbenv) により新しいバージョンの Ruby を CocoaPods のインストールに利用するように設定します([参考](https://guides.cocoapods.org/using/getting-started.html#getting-started))。
-
-###### 1. CocoaPods のアンインストール
-
-既に不適切な CocoaPods が入ってしまっている場合には以下を実行します：
-
-```shell
-sudo gem uninstall cocoapods
-```
-
-###### 2. rbenv のインストール
-
-Homebrew を利用して rbenv インストールします：
-
-```shell
-brew install ruby-build rbenv
-```
-
-シェルの設定ファイル(`~/.zshrc`)へ以下の2行を追加してください：
-
-```.zshrc
-export PATH=$HOME/.rbenv/bin:$PATH
-eval "$(rbenv init -)"
-```
-
-現在開いているターミナルへ変更を反映します：
-
-```shell
-source ~/.zshrc
-```
-
-###### 3. Ruby のバージョンアップ
-
-インストール可能なバージョン一覧を確認します：
-
-```shell
-rbenv install -l
-```
-
-一覧にあった最新バージョンをインストールします：
-
-```shell
-rbenv install x.y.z
-```
-
-インストールした Ruby のバージョンをシェル全体で適用するように設定します：
-
-```shell
-rbenv global x.y.z
-```
-
-設定を反映します：
-```shell
-rbenv init
-```
-
-rbenv の gem が動くか確認します：
-```shell
-which gem
-# (○) 適切に反映されている場合：
-# /Users/${ユーザー名}/.rbenv/shims/gem
-# (×) システムの gem が参照されてしまっている場合：
-# usr/bin/gem
-```
-
-###### 4. CocoaPods のインストール
-
-以下コマンドで再度 CocoaPods をインストールします：
-```shell
-sudo gem install cocoapods
-```
-
 ## VS Code の拡張機能について
 
 本アプリのビルド環境である VS Code においては以下の拡張機能を利用すると開発効率が向上するため、適宜インストールしてご利用ください。
@@ -195,6 +121,11 @@ Pub workspaces について：https://zenn.dev/kosukesaigusa/articles/dart-pub-w
 ## 多言語対応について
 
 本アプリは日本語/英語に対応しているため、Text ウィジェット内で文字列を表示する際にはハードコーディングする代わりに翻訳用のファイル(`l10n.dart`)へ定義されたものを利用する必要があります。以下の手順に沿って翻訳用のフィールドを追加・利用してください。
+
+### 0.  `.arb_translate_api_key`ファイルの作成
+本プロジェクトでは、翻訳の効率化のために[arb_translate](https://pub.dev/packages/arb_translate)を利用しています。  
+プロジェクトルートに`.arb_translate_api_key`ファイルを作成し、ファイル内に[こちらのページ](https://aistudio.google.com/app/apikey)から作成した API キーを格納してください。
+`melos run translate` コマンドを実行することで日本語から英語への翻訳が行われます(詳細は[こちら](https://zenn.dev/masa_tokyo/articles/arb_translate)。
 
 ### 1. 翻訳用フィールドの追加
 
